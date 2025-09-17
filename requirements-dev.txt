@@ -1,0 +1,18 @@
+# Dependências de desenvolvimento para o projeto LeIA Gemini
+
+# Incluir todas as dependências principais
+-r requirements.txt
+
+# Ferramentas de desenvolvimento
+pytest>=7.0.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+
+# Jupyter para notebooks de teste
+jupyter>=1.0.0
+ipykernel>=6.0.0
+
+# Ferramentas de profiling e debugging
+memory-profiler>=0.60.0
+line-profiler>=4.0.0

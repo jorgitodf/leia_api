@@ -1,0 +1,25 @@
+# Dependências principais para o projeto LeIA Gemini
+# Sistema de IA com RAG e integração com PostgreSQL
+
+# Core dependencies
+python-dotenv==1.1.1
+numpy==2.3.3
+pandas==2.3.2
+
+# PostgreSQL
+psycopg2-binary==2.9.10
+
+# Google Gemini AI
+google-generativeai==0.8.5
+langchain==0.3.27
+langchain-core==0.3.76
+langchain-google-genai==2.0.10
+langchain-text-splitters==0.3.11
+
+# Text processing
+regex>=2023.0.0
+
+# Optional: Para desenvolvimento e debugging
+# pytest>=7.0.0
+# black>=23.0.0
+# flake8>=6.0.0
