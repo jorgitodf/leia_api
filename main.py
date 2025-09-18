@@ -402,6 +402,24 @@ def pesquisar_linhas(pergunta):
                 cursor.execute("SET statement_timeout TO '15000ms'")
             except Exception:
                 pass
+            
+            # Verificar se a tabela ia_linhas existe
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM information_schema.tables 
+                WHERE table_name = 'ia_linhas'
+            """)
+            tabela_existe = cursor.fetchone()[0]
+            
+            if tabela_existe == 0:
+                resultados.append(f"\n--- ERRO: TABELA NÃO ENCONTRADA ---")
+                resultados.append(f"A tabela 'ia_linhas' não existe no banco de dados.")
+                resultados.append(f"Verifique se:")
+                resultados.append(f"- O banco de dados está correto")
+                resultados.append(f"- A tabela foi criada")
+                resultados.append(f"- O nome da tabela está correto")
+                return "\n".join(resultados)
+            
             # Descobrir a estrutura real da tabela ia_linhas
             cursor.execute("""
                 SELECT column_name, data_type 
@@ -604,6 +622,23 @@ def pesquisar_custos_usuarios(pergunta):
                 cursor.execute("SET statement_timeout TO '15000ms'")
             except Exception:
                 pass
+            
+            # Verificar se a tabela ia_custo_usuarios_linhas existe
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM information_schema.tables 
+                WHERE table_name = 'ia_custo_usuarios_linhas'
+            """)
+            tabela_existe = cursor.fetchone()[0]
+            
+            if tabela_existe == 0:
+                resultados.append(f"\n--- ERRO: TABELA NÃO ENCONTRADA ---")
+                resultados.append(f"A tabela 'ia_custo_usuarios_linhas' não existe no banco de dados.")
+                resultados.append(f"Verifique se:")
+                resultados.append(f"- O banco de dados está correto")
+                resultados.append(f"- A tabela foi criada")
+                resultados.append(f"- O nome da tabela está correto")
+                return "\n".join(resultados)
             
             # Descobrir a estrutura real da tabela ia_custo_usuarios_linhas
             cursor.execute("""
@@ -896,6 +931,23 @@ def pesquisar_linhas_ociosas(pergunta):
                 cursor.execute("SET statement_timeout TO '15000ms'")
             except Exception:
                 pass
+            
+            # Verificar se a tabela ia_linhas_ociosas existe
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM information_schema.tables 
+                WHERE table_name = 'ia_linhas_ociosas'
+            """)
+            tabela_existe = cursor.fetchone()[0]
+            
+            if tabela_existe == 0:
+                resultados.append(f"\n--- ERRO: TABELA NÃO ENCONTRADA ---")
+                resultados.append(f"A tabela 'ia_linhas_ociosas' não existe no banco de dados.")
+                resultados.append(f"Verifique se:")
+                resultados.append(f"- O banco de dados está correto")
+                resultados.append(f"- A tabela foi criada")
+                resultados.append(f"- O nome da tabela está correto")
+                return "\n".join(resultados)
             
             # Descobrir a estrutura real da tabela ia_linhas_ociosas
             cursor.execute("""
@@ -1236,6 +1288,38 @@ def pesquisar_no_banco(pergunta):
                 cursor.execute("SET statement_timeout TO '15000ms'")
             except Exception:
                 pass
+            
+            # Verificar se a tabela ia_custo_fornecedor existe
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM information_schema.tables 
+                WHERE table_name = 'ia_custo_fornecedor'
+            """)
+            tabela_existe = cursor.fetchone()[0]
+            
+            if tabela_existe == 0:
+                resultados.append(f"\n--- ERRO: TABELA NÃO ENCONTRADA ---")
+                resultados.append(f"A tabela 'ia_custo_fornecedor' não existe no banco de dados.")
+                resultados.append(f"Verifique se:")
+                resultados.append(f"- O banco de dados está correto")
+                resultados.append(f"- A tabela foi criada")
+                resultados.append(f"- O nome da tabela está correto")
+                resultados.append(f"\nTabelas disponíveis no banco:")
+                
+                # Listar tabelas disponíveis
+                cursor.execute("""
+                    SELECT table_schema, table_name 
+                    FROM information_schema.tables 
+                    WHERE table_type = 'BASE TABLE'
+                    AND table_schema NOT IN ('information_schema', 'pg_catalog', 'pgagent')
+                    ORDER BY table_schema, table_name
+                """)
+                tabelas_disponiveis = cursor.fetchall()
+                for schema, tabela in tabelas_disponiveis:
+                    resultados.append(f"- {schema}.{tabela}")
+                
+                return "\n".join(resultados)
+            
             # Descobrir a estrutura real da tabela ia_custo_fornecedor
             cursor.execute("""
                 SELECT column_name, data_type 
@@ -1250,6 +1334,7 @@ def pesquisar_no_banco(pergunta):
             coluna_fornecedor = None
             coluna_custo = None
             coluna_mes_referencia = None
+            coluna_tipo_contrato = None
             
             for coluna, tipo in colunas_tabela:
                 coluna_lower = coluna.lower()
@@ -1261,6 +1346,8 @@ def pesquisar_no_banco(pergunta):
                     coluna_custo = coluna
                 elif 'mes' in coluna_lower or 'referencia' in coluna_lower or 'data' in coluna_lower or tipo in ['date', 'timestamp', 'varchar', 'text']:
                     coluna_mes_referencia = coluna
+                elif 'tipo' in coluna_lower and 'contrato' in coluna_lower:
+                    coluna_tipo_contrato = coluna
             
             # Extrair informações da pergunta
             ano, mes_numero, mes_nome = extrair_mes_ano(pergunta)
@@ -1282,12 +1369,20 @@ def pesquisar_no_banco(pergunta):
                 
                 # CONSULTA 1: Buscar dados EXATOS para o mês/ano solicitado
                 filtro_mes = construir_filtro_mes(coluna_mes_referencia, None, ano, mes_numero)
-                query_mes_exato = f"""
-                SELECT 
+                
+                # Incluir tipo_contrato se a coluna existir
+                campos_select = f"""
                     {coluna_cliente} as cliente,
                     {coluna_fornecedor} as fornecedor,
                     {coluna_mes_referencia} as mes_referencia,
-                    {coluna_custo} as custo
+                    {coluna_custo} as custo"""
+                
+                if coluna_tipo_contrato:
+                    campos_select += f",\n                    {coluna_tipo_contrato} as tipo_contrato"
+                
+                query_mes_exato = f"""
+                SELECT 
+                    {campos_select}
                 FROM ia_custo_fornecedor 
                 WHERE {filtro_cliente}
                 {filtro_mes}
@@ -1320,16 +1415,27 @@ def pesquisar_no_banco(pergunta):
             # CONSULTA 3: Fornecedor com maior custo no mês/ano solicitado (DYNAMIC - SOMA por fornecedor)
             if mes_numero and ano and coluna_mes_referencia and coluna_cliente and coluna_fornecedor and coluna_custo:
                 filtro_mes = construir_filtro_mes(coluna_mes_referencia, None, ano, mes_numero)
-                query_maior_custo_mes = f"""
-                SELECT 
+                
+                # Incluir tipo_contrato se a coluna existir
+                campos_select_maior = f"""
                     {coluna_cliente} as cliente,
                     {coluna_fornecedor} as fornecedor,
                     {coluna_mes_referencia} as mes_referencia,
-                    SUM({coluna_custo}) as custo_total
+                    SUM({coluna_custo}) as custo_total"""
+                
+                campos_group_by = f"{coluna_cliente}, {coluna_fornecedor}, {coluna_mes_referencia}"
+                
+                if coluna_tipo_contrato:
+                    campos_select_maior += f",\n                    {coluna_tipo_contrato} as tipo_contrato"
+                    campos_group_by += f", {coluna_tipo_contrato}"
+                
+                query_maior_custo_mes = f"""
+                SELECT 
+                    {campos_select_maior}
                 FROM ia_custo_fornecedor 
                 WHERE {filtro_cliente}
                 {filtro_mes}
-                GROUP BY {coluna_cliente}, {coluna_fornecedor}, {coluna_mes_referencia}
+                GROUP BY {campos_group_by}
                 ORDER BY custo_total DESC
                 LIMIT 1
                 """
@@ -1374,14 +1480,24 @@ def pesquisar_no_banco(pergunta):
             
             # CONSULTA 6: Total geral por fornecedor
             if coluna_cliente and coluna_fornecedor and coluna_custo:
-                query_total_geral = f"""
-                SELECT 
+                # Incluir tipo_contrato se a coluna existir
+                campos_select_total = f"""
                     {coluna_cliente} as cliente,
                     {coluna_fornecedor} as fornecedor,
-                    SUM({coluna_custo}) as custo_total
+                    SUM({coluna_custo}) as custo_total"""
+                
+                campos_group_by_total = f"{coluna_cliente}, {coluna_fornecedor}"
+                
+                if coluna_tipo_contrato:
+                    campos_select_total += f",\n                    {coluna_tipo_contrato} as tipo_contrato"
+                    campos_group_by_total += f", {coluna_tipo_contrato}"
+                
+                query_total_geral = f"""
+                SELECT 
+                    {campos_select_total}
                 FROM ia_custo_fornecedor 
                 WHERE {filtro_cliente}
-                GROUP BY {coluna_cliente}, {coluna_fornecedor}
+                GROUP BY {campos_group_by_total}
                 ORDER BY custo_total DESC
                 LIMIT 10
                 """
@@ -1444,7 +1560,9 @@ def construir_rag_prompt():
     template = (
         "Você é um assistente analista de dados. Responda APENAS com base no CONTEXTO fornecido.\n"
         "- Cite números exatamente como aparecem no contexto.\n"
-        "- Se a informação não estiver no contexto, diga que não encontrou nos dados.\n\n"
+        "- Se a informação não estiver no contexto, diga que não encontrou nos dados.\n"
+        "- SEMPRE inclua o tipo de contrato quando disponível nos dados.\n"
+        "- Para perguntas sobre fornecedor com maior custo, use o formato: 'O Cliente [nome], o fornecedor com o maior custo no mês de [mês] de [ano] é [fornecedor], com um custo total de [valor], tipo de contrato [tipo_contrato].'\n\n"
         "Pergunta: {pergunta}\n\n"
         "Contexto (trechos relevantes):\n{contexto}\n\n"
         "Resposta objetiva e concisa em PT-BR:"
