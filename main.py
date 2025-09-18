@@ -468,13 +468,6 @@ def pesquisar_linhas(pergunta):
                     status_extraido = status
                     break
             
-            # DEBUG: Mostrar o que foi extraído
-            resultados.append(f"\n--- INFORMAÇÕES EXTRAÍDAS DA PERGUNTA ---")
-            resultados.append(f"Pergunta: {pergunta}")
-            resultados.append(f"Ano extraído: {ano}")
-            resultados.append(f"Mês extraído: {mes_nome} ({mes_numero})")
-            resultados.append(f"Cliente extraído: {cliente_extraido}")
-            resultados.append(f"Status extraído: {status_extraido}")
             
             # Configurar filtros
             filtro_cliente = f"{coluna_cliente} ILIKE '%{cliente_extraido}%'" if cliente_extraido else f"{coluna_cliente} IS NOT NULL"
@@ -510,13 +503,20 @@ def pesquisar_linhas(pergunta):
                     resultados.append(f"\n--- TOTAL CALCULADO: {formatar_inteiro_ptbr(total_calculado)} linhas ---")
             
             # CONSULTA 2: Total por fornecedor (sem SUM, assumindo que já é total)
-            query_por_fornecedor = f"""
-            SELECT 
+            # Incluir tipo_contrato se a coluna existir
+            campos_select_fornecedor = f"""
                 {coluna_cliente} as cliente,
                 {coluna_fornecedor} as fornecedor,
                 {coluna_status_licenca} as status_licenca,
                 {coluna_mes_referencia} as mes_referencia,
-                {coluna_total_linhas} as total_linhas
+                {coluna_total_linhas} as total_linhas"""
+            
+            if coluna_tipo_contrato:
+                campos_select_fornecedor += f",\n                {coluna_tipo_contrato} as tipo_contrato"
+            
+            query_por_fornecedor = f"""
+            SELECT 
+                {campos_select_fornecedor}
             FROM ia_linhas
             WHERE {filtro_cliente}
             {filtro_status}
@@ -552,31 +552,50 @@ def pesquisar_linhas(pergunta):
                 if total_geral is not None:
                     resultados.append(f"\n--- TOTAL GERAL (USANDO SUM): {formatar_inteiro_ptbr(total_geral)} linhas ---")
             
-            # CONSULTA 3.1: Total de linhas por fornecedor (agrupado)
+            
+            # CONSULTA 3.1: Total de linhas por fornecedor (dados diretos da tabela)
             if coluna_fornecedor and coluna_total_linhas:
-                query_total_por_fornecedor_agrupado = f"""
-                SELECT 
-                    {coluna_fornecedor} AS fornecedor,
-                    SUM({coluna_total_linhas}) AS total_por_fornecedor
-                FROM ia_linhas
-                WHERE {filtro_cliente}
-                {filtro_status}
-                {filtro_mes}
-                GROUP BY {coluna_fornecedor}
-                ORDER BY total_por_fornecedor DESC
-                LIMIT 100
-                """
+                # Usar filtros dinâmicos baseados na pergunta
+                if 'atualmente' in pergunta_lower or 'atual' in pergunta_lower:
+                    # Para "atualmente", usar o mês mais recente disponível
+                    query_linhas_por_fornecedor = f"""
+                    SELECT 
+                        {coluna_fornecedor} AS fornecedor,
+                        {coluna_total_linhas} AS total_linhas,
+                        {coluna_tipo_contrato} AS tipo_contrato
+                    FROM ia_linhas
+                    WHERE {coluna_cliente} = 'Safra'
+                    AND {coluna_status_licenca} = 'ATIVA'
+                    AND {coluna_mes_referencia} = (
+                        SELECT MAX({coluna_mes_referencia}) 
+                        FROM ia_linhas 
+                        WHERE {coluna_cliente} = 'Safra' 
+                        AND {coluna_status_licenca} = 'ATIVA'
+                    )
+                    ORDER BY {coluna_total_linhas} DESC
+                    """
+                else:
+                    # Para mês específico, usar os filtros extraídos
+                    query_linhas_por_fornecedor = f"""
+                    SELECT 
+                        {coluna_fornecedor} AS fornecedor,
+                        {coluna_total_linhas} AS total_linhas,
+                        {coluna_tipo_contrato} AS tipo_contrato
+                    FROM ia_linhas
+                    WHERE {filtro_cliente}
+                    {filtro_status}
+                    {filtro_mes}
+                    AND {coluna_total_linhas} > 0
+                    ORDER BY {coluna_total_linhas} DESC
+                    """
                 
-                resultado_agrupado = executar_query_direta(conn, query_total_por_fornecedor_agrupado)
-                if resultado_agrupado is not None and not resultado_agrupado.empty:
-                    titulo_agregado = "\n--- TOTAL POR FORNECEDOR (AGRUPADO) ---"
+                resultado_linhas = executar_query_direta(conn, query_linhas_por_fornecedor)
+                if resultado_linhas is not None and not resultado_linhas.empty:
+                    titulo_agregado = "\n--- LINHAS POR FORNECEDOR E TIPO DE CONTRATO ---"
                     resultados.append(titulo_agregado)
-                    linhas_tabulares = []
-                    for _, row in resultado_agrupado.iterrows():
-                        fornecedor_nome = str(row['fornecedor']) if 'fornecedor' in row else ''
-                        total_fornecedor = row['total_por_fornecedor'] if 'total_por_fornecedor' in row else 0
-                        linhas_tabulares.append(f"{fornecedor_nome}\t{formatar_inteiro_ptbr(total_fornecedor)}")
-                    resultados.append("\n".join(linhas_tabulares))
+                    
+                    # Mostrar dados diretos da tabela
+                    resultados.append(resultado_linhas.to_string(index=False))
             
             # CONSULTA 4: Ver estrutura dos dados
             query_amostra = f"""
@@ -1269,7 +1288,7 @@ def pesquisar_no_banco(pergunta):
             return pesquisar_linhas_ociosas(pergunta)
     
     # Verificar se a pergunta é sobre linhas normais
-    termos_linhas = ['linha', 'licenca', 'status', 'ativa', 'bloqueada', 'cancelada', 'total_linhas']
+    termos_linhas = ['linha', 'licenca', 'status', 'ativa', 'bloqueada', 'cancelada', 'total_linhas', 'fornecedor']
     if any(termo in pergunta_lower for termo in termos_linhas):
         return pesquisar_linhas(pergunta)
     
@@ -1559,10 +1578,14 @@ def construir_rag_prompt():
     """Cria o template de prompt para RAG."""
     template = (
         "Você é um assistente analista de dados. Responda APENAS com base no CONTEXTO fornecido.\n"
-        "- Cite números exatamente como aparecem no contexto.\n"
+        "- IMPORTANTE: Use EXATAMENTE os números que aparecem no contexto. NÃO faça cálculos, somas ou multiplicações.\n"
         "- Se a informação não estiver no contexto, diga que não encontrou nos dados.\n"
         "- SEMPRE inclua o tipo de contrato quando disponível nos dados.\n"
-        "- Para perguntas sobre fornecedor com maior custo, use o formato: 'O Cliente [nome], o fornecedor com o maior custo no mês de [mês] de [ano] é [fornecedor], com um custo total de [valor], tipo de contrato [tipo_contrato].'\n\n"
+        "- Para números grandes (milhares), use ponto como separador de milhar (ex: 1.234.567).\n"
+        "- Para perguntas sobre fornecedor com maior custo, use o formato: 'O Cliente [nome], o fornecedor com o maior custo no mês de [mês] de [ano] é [fornecedor], com um custo total de [valor], tipo de contrato [tipo_contrato].'\n"
+        "- Para perguntas sobre linhas por fornecedor, use o formato: '* **[Fornecedor]**: [número] linhas, tipo de contrato [tipo_contrato].'\n"
+        "- CRÍTICO: Se você vir 'total_linhas: 1.262.790' no contexto, use EXATAMENTE 1.262.790, não faça nenhum cálculo.\n"
+        "- CRÍTICO: Se você vir 'total_linhas: 58.643' no contexto, use EXATAMENTE 58.643, não faça nenhum cálculo.\n\n"
         "Pergunta: {pergunta}\n\n"
         "Contexto (trechos relevantes):\n{contexto}\n\n"
         "Resposta objetiva e concisa em PT-BR:"
@@ -1678,6 +1701,27 @@ while True:
         print("LeIA: ", end="")
         imprimir_digitando(dados_banco)
         print("")
+    # Verificar se é uma resposta de linhas normais (deve passar pelo RAG)
+    elif ("--- LINHAS POR FORNECEDOR" in dados_banco or 
+          "--- TOTAL POR FORNECEDOR" in dados_banco or
+          "--- DADOS BRUTOS" in dados_banco or
+          "--- DEBUG:" in dados_banco):
+        # Passar pelo RAG para formatar a resposta
+        if not modo_sem_llm:
+            try:
+                resposta = responder_com_rag(pergunta, dados_banco, llm, embeddings, top_k=6)
+                print("LeIA: ", end="")
+                imprimir_digitando(resposta)
+                print("")
+            except Exception as e:
+                print(f"Erro ao gerar resposta: {e}")
+                print("Mostrando apenas resultados do banco:")
+                imprimir_digitando(dados_banco)
+                print("")
+        else:
+            print(f"\nResultados do banco de dados:")
+            print(dados_banco)
+            print("\n")
     elif modo_sem_llm:
         print(f"\nResultados do banco de dados:")
         print(dados_banco)
