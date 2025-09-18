@@ -9,6 +9,7 @@ Sistema de inteligência artificial que utiliza Google Gemini com RAG (Retrieval
 - **Análise de Linhas Ociosas**: Consultas sobre linhas ociosas por cliente
 - **Sistema RAG**: Integração com Google Gemini para respostas inteligentes
 - **Interface Conversacional**: Chat interativo em português brasileiro
+- **🌐 Interface Web**: Aplicação web moderna com Streamlit para uso em navegador
 
 ## 📋 Pré-requisitos
 
@@ -56,9 +57,42 @@ GOOGLE_API_KEY=sua_chave_api_aqui
 ```
 
 ### 5. Execute o sistema
+
+#### Opção 1: Interface Web (Recomendado)
+```bash
+# Método simples - duplo clique no arquivo
+iniciar_leia_web.bat
+
+# Ou via Python
+python start_web.py
+
+# Ou diretamente
+streamlit run app.py
+```
+
+#### Opção 2: Interface Terminal
 ```bash
 python main.py
 ```
+
+> **💡 Dica**: A interface web oferece uma experiência mais amigável e moderna!
+
+## 🌐 Interface Web
+
+A interface web da LeIA oferece:
+
+- **🎨 Design Moderno**: Interface limpa e intuitiva
+- **💬 Chat Interativo**: Histórico de conversas salvo na sessão
+- **📊 Status em Tempo Real**: Indicadores de progresso e status do sistema
+- **📱 Responsivo**: Funciona em desktop, tablet e mobile
+- **🔄 Modo Fallback**: Funciona mesmo sem conexão com a API do Gemini
+
+### Acesso Rápido
+- **URL Local**: http://localhost:8501
+- **Arquivo de Inicialização**: `iniciar_leia_web.bat` (Windows)
+- **Script Python**: `python start_web.py`
+
+Para mais detalhes, consulte o [README_STREAMLIT.md](README_STREAMLIT.md).
 
 ## 📊 Estrutura do Banco de Dados
 

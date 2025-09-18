@@ -19,6 +19,9 @@ langchain-text-splitters==0.3.11
 # Text processing
 regex>=2023.0.0
 
+# Web Interface
+streamlit>=1.28.0
+
 # Optional: Para desenvolvimento e debugging
 # pytest>=7.0.0
 # black>=23.0.0

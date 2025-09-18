@@ -1662,8 +1662,8 @@ def responder_com_rag(pergunta, dados_textuais, llm, embeddings, top_k=6):
     except Exception:
         return formatar_valores_monetarios_no_texto(str(resposta))
 
-print("Chatbot IA LeIA (Gemini 2.5 Flash + RAG)")
-print("Digite 'sair' para encerrar o programa!")
+print("Olá, sou a sua assistente virtual LeIA, como posso te ajudar hoje?")
+print("Digite 'sair' quando quiser encerrar a minha assistência!")
 
 # Inicializa LLM e Embeddings uma única vez
 try:
