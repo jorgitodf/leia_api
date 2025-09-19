@@ -934,6 +934,225 @@ def pesquisar_custos_usuarios(pergunta):
     
     return "\n".join(resultados)
 
+def pesquisar_termos_linhas(pergunta):
+    """Pesquisa específica para a tabela ia_termos_numeros"""
+    try:
+        conn = conectar_postgres()
+        if not conn:
+            return "Não foi possível conectar ao banco de dados."
+        
+        resultados = []
+        tempo_inicio = time.time()
+        
+        with conn.cursor() as cursor:
+            # Evita queries demoradas
+            try:
+                cursor.execute("SET statement_timeout TO '15000ms'")
+            except Exception:
+                pass
+            
+            # Verificar se a tabela ia_termos_numeros existe
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM information_schema.tables 
+                WHERE table_name = 'ia_termos_numeros'
+            """)
+            tabela_existe = cursor.fetchone()[0]
+            
+            if tabela_existe == 0:
+                resultados.append(f"\n--- ERRO: TABELA NÃO ENCONTRADA ---")
+                resultados.append(f"A tabela 'ia_termos_numeros' não existe no banco de dados.")
+                resultados.append(f"Verifique se:")
+                resultados.append(f"- O banco de dados está correto")
+                resultados.append(f"- A tabela foi criada")
+                resultados.append(f"- O nome da tabela está correto")
+                return "\n".join(resultados)
+            
+            # Descobrir a estrutura real da tabela ia_termos_numeros
+            cursor.execute("""
+                SELECT column_name, data_type 
+                FROM information_schema.columns 
+                WHERE table_name = 'ia_termos_numeros'
+                ORDER BY ordinal_position
+            """)
+            colunas_tabela = cursor.fetchall()
+        
+        # Encontrar nomes reais das colunas
+        coluna_cliente = None
+        coluna_numero_linha = None
+        coluna_status_linha = None
+        coluna_conta_linha = None
+        coluna_tipo_numero = None
+        coluna_tipo_linha = None
+        coluna_possui_termo = None
+        coluna_status_termo = None
+        coluna_tipo_termo = None
+        coluna_nome_usuario = None
+        
+        for coluna, tipo in colunas_tabela:
+            coluna_lower = coluna.lower()
+            if 'cliente' in coluna_lower:
+                coluna_cliente = coluna
+            elif 'numero_linha' in coluna_lower or 'numero' in coluna_lower:
+                coluna_numero_linha = coluna
+            elif 'status_linha' in coluna_lower:
+                coluna_status_linha = coluna
+            elif 'conta_linha' in coluna_lower:
+                coluna_conta_linha = coluna
+            elif 'tipo_numero' in coluna_lower:
+                coluna_tipo_numero = coluna
+            elif 'tipo_linha' in coluna_lower:
+                coluna_tipo_linha = coluna
+            elif 'possui_termo' in coluna_lower:
+                coluna_possui_termo = coluna
+            elif 'status_termo' in coluna_lower:
+                coluna_status_termo = coluna
+            elif 'tipo_termo' in coluna_lower:
+                coluna_tipo_termo = coluna
+            elif 'nome_usuario' in coluna_lower:
+                coluna_nome_usuario = coluna
+        
+        # Extrair informações da pergunta
+        cliente_extraido = extrair_cliente_pergunta(pergunta)
+        pergunta_lower = pergunta.lower()
+        
+        # Configurar filtros - capitalizar primeira letra do cliente
+        cliente_capitalizado = cliente_extraido.capitalize() if cliente_extraido else None
+        filtro_cliente = f"{coluna_cliente} = '{cliente_capitalizado}'" if cliente_capitalizado else f"{coluna_cliente} IS NOT NULL"
+        nome_cliente_filtro = cliente_capitalizado if cliente_capitalizado else "todos os clientes"
+        
+        # Detectar tipo de pergunta - PRIORIDADE para pergunta 3 (linhas ativas por tipo)
+        if ('linhas sem termos' in pergunta_lower and 'tipo de linha' in pergunta_lower and 'linhas ativas' in pergunta_lower) or ('estão ativas' in pergunta_lower and 'tipo' in pergunta_lower):
+            # Pergunta 3: Total de linhas sem termos ativas por tipo de linha
+            # Primeiro, contar total de linhas sem termos
+            query_total_sem_termo = f"""
+            SELECT COUNT(*) as total_sem_termo
+            FROM ia_termos_numeros
+            WHERE {filtro_cliente}
+            AND ({coluna_possui_termo} = 'N' OR {coluna_possui_termo} = 'Não' OR {coluna_possui_termo} = 'NAO' OR {coluna_possui_termo} = 'NÃO' OR {coluna_possui_termo} IS NULL OR {coluna_possui_termo} = '')
+            """
+            
+            resultado_total = executar_query_direta(conn, query_total_sem_termo)
+            total_sem_termo = resultado_total.iloc[0]['total_sem_termo'] or 0 if resultado_total is not None and not resultado_total.empty else 0
+            
+            # Agora, contar linhas sem termos ativas por tipo
+            query_ativas_por_tipo = f"""
+            SELECT 
+                {coluna_tipo_linha} as tipo_linha,
+                {coluna_status_linha} as status_linha,
+                COUNT(*) as total_ativas
+            FROM ia_termos_numeros
+            WHERE {filtro_cliente}
+            AND ({coluna_possui_termo} = 'N' OR {coluna_possui_termo} = 'Não' OR {coluna_possui_termo} = 'NAO' OR {coluna_possui_termo} = 'NÃO' OR {coluna_possui_termo} IS NULL OR {coluna_possui_termo} = '')
+            AND ({coluna_status_linha} ILIKE '%ATIVA%' OR {coluna_status_linha} ILIKE '%ATIVO%')
+            GROUP BY {coluna_tipo_linha}, {coluna_status_linha}
+            ORDER BY total_ativas DESC
+            """
+            
+            resultado_ativas = executar_query_direta(conn, query_ativas_por_tipo)
+            if resultado_ativas is not None and not resultado_ativas.empty:
+                # Construir resposta detalhada - agrupar por tipo_linha
+                tipos_agrupados = {}
+                for _, row in resultado_ativas.iterrows():
+                    tipo_linha = row['tipo_linha'] if row['tipo_linha'] else 'N/A'
+                    total_ativas = row['total_ativas']
+                    
+                    if tipo_linha not in tipos_agrupados:
+                        tipos_agrupados[tipo_linha] = 0
+                    tipos_agrupados[tipo_linha] += total_ativas
+                
+                # Construir detalhes agrupados por tipo
+                detalhes_ativas = []
+                for tipo_linha, total in tipos_agrupados.items():
+                    detalhes_ativas.append(f"{formatar_inteiro_ptbr(total)} linhas que estão Ativas são do tipo {tipo_linha}")
+                
+                resposta = f"O Cliente {nome_cliente_filtro} possui {formatar_inteiro_ptbr(total_sem_termo)} linhas sem termos e {', '.join(detalhes_ativas)}."
+                return resposta
+            else:
+                return f"O Cliente {nome_cliente_filtro} possui {formatar_inteiro_ptbr(total_sem_termo)} linhas sem termos, mas nenhuma está ativa."
+        
+        # Detectar tipo de pergunta - PRIORIDADE para pergunta 2 (total por tipo)
+        elif ('total de linhas sem termos' in pergunta_lower and 'tipo de linha' in pergunta_lower) or ('me mostre o total por tipo' in pergunta_lower) or ('por tipo de linha' in pergunta_lower):
+            # Pergunta 2: Total por tipo de linha das linhas sem termos
+            query_por_tipo_linha = f"""
+            SELECT 
+                {coluna_tipo_linha} as tipo_linha,
+                COUNT(*) as total_sem_termo
+            FROM ia_termos_numeros
+            WHERE {filtro_cliente}
+            AND ({coluna_possui_termo} = 'N' OR {coluna_possui_termo} = 'Não' OR {coluna_possui_termo} = 'NAO' OR {coluna_possui_termo} = 'NÃO' OR {coluna_possui_termo} IS NULL OR {coluna_possui_termo} = '')
+            GROUP BY {coluna_tipo_linha}
+            ORDER BY total_sem_termo DESC
+            """
+            
+            resultado_por_tipo = executar_query_direta(conn, query_por_tipo_linha)
+            if resultado_por_tipo is not None and not resultado_por_tipo.empty:
+                # Calcular total geral
+                total_geral = resultado_por_tipo['total_sem_termo'].sum()
+                
+                # Construir resposta detalhada
+                detalhes_tipo = []
+                for _, row in resultado_por_tipo.iterrows():
+                    tipo_linha = row['tipo_linha'] if row['tipo_linha'] else 'N/A'
+                    total_tipo = row['total_sem_termo']
+                    detalhes_tipo.append(f"{formatar_inteiro_ptbr(total_tipo)} linhas são do tipo {tipo_linha}")
+                
+                resposta = f"O Cliente {nome_cliente_filtro} possui {formatar_inteiro_ptbr(total_geral)} linhas sem termos, sendo que {', '.join(detalhes_tipo)}."
+                return resposta
+            else:
+                return f"O Cliente {nome_cliente_filtro} possui 0 linhas sem termos."
+        
+        elif 'não possuem termo' in pergunta_lower or 'nao possuem termo' in pergunta_lower or 'sem termo' in pergunta_lower:
+            # Pergunta 1: Quantas linhas não possuem termo
+            query_linhas_sem_termo = f"""
+            SELECT COUNT(*) as total_sem_termo
+            FROM ia_termos_numeros
+            WHERE {filtro_cliente}
+            AND ({coluna_possui_termo} = 'N' OR {coluna_possui_termo} = 'Não' OR {coluna_possui_termo} = 'NAO' OR {coluna_possui_termo} = 'NÃO' OR {coluna_possui_termo} IS NULL OR {coluna_possui_termo} = '')
+            """
+            
+            resultado_sem_termo = executar_query_direta(conn, query_linhas_sem_termo)
+            if resultado_sem_termo is not None and not resultado_sem_termo.empty:
+                total_sem_termo = resultado_sem_termo.iloc[0]['total_sem_termo'] or 0
+                return f"O Cliente {nome_cliente_filtro} possui {formatar_inteiro_ptbr(total_sem_termo)} linhas sem termos."
+            else:
+                return f"O Cliente {nome_cliente_filtro} possui 0 linhas sem termos."
+        
+        # Se não conseguiu identificar o tipo de pergunta, retornar dados gerais
+        query_geral = f"""
+        SELECT 
+            {coluna_cliente} as cliente,
+            {coluna_numero_linha} as numero_linha,
+            {coluna_tipo_linha} as tipo_linha,
+            {coluna_possui_termo} as possui_termo,
+            {coluna_status_termo} as status_termo,
+            {coluna_tipo_termo} as tipo_termo
+        FROM ia_termos_numeros
+        WHERE {filtro_cliente}
+        LIMIT 10
+        """
+        
+        resultado_geral = executar_query_direta(conn, query_geral)
+        if resultado_geral is not None and not resultado_geral.empty:
+            resultados.append(f"\n--- DADOS DE TERMOS - CLIENTE {nome_cliente_filtro.upper()} ---")
+            resultados.append(resultado_geral.to_string(index=False))
+        else:
+            return f"Não foram encontrados dados de termos para o Cliente {nome_cliente_filtro}."
+                    
+    except Exception as e:
+        return f"Erro durante a pesquisa de termos: {e}"
+    finally:
+        if 'conn' in locals():
+            conn.close()
+    
+    tempo_total = time.time() - tempo_inicio
+    resultados.append(f"\n--- TEMPO DE EXECUÇÃO: {tempo_total:.2f} segundos ---")
+    
+    if len(resultados) <= 1:  # Apenas tempo
+        return "Nenhum resultado encontrado na tabela ia_termos_numeros para a pesquisa."
+    
+    return "\n".join(resultados)
+
 def pesquisar_linhas_ociosas(pergunta):
     """Pesquisa específica para a tabela ia_linhas_ociosas"""
     try:
@@ -1259,7 +1478,12 @@ def pesquisar_no_banco(pergunta):
     """Pesquisa inteligente no banco de dados - Mantida a versão original"""
     pergunta_lower = pergunta.lower()
     
-    # Verificar PRIMEIRO se a pergunta é sobre custos por usuários (prioridade)
+    # Verificar PRIMEIRO se a pergunta é sobre termos de linhas (prioridade)
+    termos_termos = ['termo', 'termos', 'possui termo', 'não possuem termo', 'nao possuem termo', 'sem termo']
+    if any(termo in pergunta_lower for termo in termos_termos):
+        return pesquisar_termos_linhas(pergunta)
+    
+    # Verificar se a pergunta é sobre custos por usuários
     # Detectar padrões específicos de perguntas sobre custos por usuários
     padroes_custos_usuarios = [
         'usuário.*maior.*custo',
@@ -1698,6 +1922,13 @@ while True:
         ("linhas ociosas" in dados_banco or "linha ociosa" in dados_banco or 
          "possui atualmente" in dados_banco or "possuiu em" in dados_banco or 
          "possuiu nos últimos" in dados_banco)):
+        print("LeIA: ", end="")
+        imprimir_digitando(dados_banco)
+        print("")
+    # Verificar se é uma resposta sobre termos de linhas (já formatada)
+    elif (dados_banco.startswith("O Cliente") and 
+        ("linhas sem termos" in dados_banco or "linha sem termo" in dados_banco or 
+         "são do tipo" in dados_banco or "estão Ativas são do tipo" in dados_banco)):
         print("LeIA: ", end="")
         imprimir_digitando(dados_banco)
         print("")

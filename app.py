@@ -131,7 +131,7 @@ from main import (
     formatar_moeda, formatar_dataframe_moeda, formatar_valores_monetarios_no_texto,
     formatar_inteiro_ptbr, construir_filtro_mes, detectar_tabela_e_campos,
     pesquisar_linhas, pesquisar_custos_usuarios, pesquisar_linhas_ociosas,
-    pesquisar_no_banco, _cosine_similarity, construir_rag_prompt,
+    pesquisar_termos_linhas, pesquisar_no_banco, _cosine_similarity, construir_rag_prompt,
     preparar_llm_e_embeddings, responder_com_rag
 )
 
@@ -269,6 +269,12 @@ def processar_pergunta(pergunta):
          "possuiu nos últimos" in dados_banco)):
         return dados_banco
     
+    # Verificar se é uma resposta sobre termos de linhas (já formatada)
+    elif (dados_banco.startswith("O Cliente") and 
+        ("linhas sem termos" in dados_banco or "linha sem termo" in dados_banco or 
+         "são do tipo" in dados_banco or "estão Ativas são do tipo" in dados_banco)):
+        return dados_banco
+    
     # Verificar se é uma resposta de linhas normais (deve passar pelo RAG)
     elif ("--- LINHAS POR FORNECEDOR" in dados_banco or 
           "--- TOTAL POR FORNECEDOR" in dados_banco or
@@ -317,6 +323,7 @@ def main():
         - 📱 Consulta de linhas telefônicas
         - 👥 Análise de custos por usuário
         - 📈 Relatórios de linhas ociosas
+        - 📋 Análise de termos de linhas telefônicas
         - 🔍 Pesquisas inteligentes no banco de dados
         
         ### 💡 Exemplos de perguntas:
@@ -324,6 +331,9 @@ def main():
         - "Quantas linhas ativas tem o cliente Safra?"
         - "Quem foi o usuário com maior custo no mês atual?"
         - "Quantas linhas ociosas tem o cliente Sotreq?"
+        - "Quantas linhas no Cliente Safra não possuem termo?"
+        - "Do total de linhas sem termos no Cliente Safra, me mostre o total por tipo de linha"
+        - "Do total de linhas sem termos no Cliente Safra por tipo de linha, me mostre o total por tipo linhas ativas"
         """)
         
         st.header("⚙️ Status do Sistema")
@@ -378,6 +388,11 @@ def main():
             **📱 Linhas Telefônicas:**
             - Quantas linhas ativas tem o cliente Safra?
             - Quantas linhas bloqueadas tem o cliente Sonda?
+            
+            **📋 Termos de Linhas:**
+            - Quantas linhas no Cliente Safra não possuem termo?
+            - Do total de linhas sem termos no Cliente Safra, me mostre o total por tipo de linha
+            - Do total de linhas sem termos no Cliente Safra por tipo de linha, me mostre o total por tipo linhas ativas
             """)
         
         with col2:
