@@ -625,6 +625,42 @@ def pesquisar_linhas(pergunta):
     
     return "\n".join(resultados)
 
+def extrair_quantidade_meses(pergunta):
+    """Extrai a quantidade de meses mencionada na pergunta"""
+    import re
+    
+    pergunta_lower = pergunta.lower()
+    
+    # Padrões para capturar números seguidos de "meses" ou "mês"
+    padroes = [
+        r'últimos?\s+(\d+)\s+meses?',
+        r'últimos?\s+(\d+)\s+mês',
+        r'(\d+)\s+meses?\s+atrás',
+        r'(\d+)\s+mês\s+atrás',
+        r'nos?\s+últimos?\s+(\d+)\s+meses?',
+        r'nos?\s+últimos?\s+(\d+)\s+mês'
+    ]
+    
+    # Padrão específico para "último mês" (singular)
+    if re.search(r'último\s+mês', pergunta_lower):
+        return 1
+    
+    for padrao in padroes:
+        match = re.search(padrao, pergunta_lower)
+        if match:
+            return int(match.group(1))
+    
+    # Se não encontrou padrão específico, verificar se há menção a "últimos" com número
+    match = re.search(r'últimos?\s+(\d+)', pergunta_lower)
+    if match and ('mês' in pergunta_lower or 'mes' in pergunta_lower):
+        return int(match.group(1))
+    
+    # Padrão específico para "3 meses" (compatibilidade)
+    if 'último' in pergunta_lower and '3' in pergunta_lower and ('mês' in pergunta_lower or 'mes' in pergunta_lower):
+        return 3
+    
+    return None
+
 def pesquisar_custos_usuarios(pergunta):
     """Pesquisa específica para a tabela ia_custo_usuarios_linhas"""
     try:
@@ -824,26 +860,32 @@ def pesquisar_custos_usuarios(pergunta):
                     # Retornar dados de debug para análise
                     return "\n".join(resultados)
         
-        elif 'último' in pergunta_lower and '3' in pergunta_lower and ('mês' in pergunta_lower or 'mes' in pergunta_lower):
-            # Pergunta 3: Maiores custos nos últimos 3 meses
+        elif 'último' in pergunta_lower and ('mês' in pergunta_lower or 'mes' in pergunta_lower or 'meses' in pergunta_lower):
+            # Pergunta 3: Maiores custos nos últimos X meses
+            quantidade_meses = extrair_quantidade_meses(pergunta)
+            
+            # Se não conseguiu extrair quantidade, usar 3 como padrão (compatibilidade)
+            if quantidade_meses is None:
+                quantidade_meses = 3
+            
             from datetime import datetime, timedelta
             hoje = datetime.now()
             
-            # Calcular data de início (3 meses atrás do mês atual)
-            if hoje.month <= 3:
+            # Calcular data de início (X meses atrás do mês atual)
+            if hoje.month <= quantidade_meses:
                 ano_inicio = hoje.year - 1
-                mes_inicio = hoje.month + 9
+                mes_inicio = hoje.month + (12 - quantidade_meses)
             else:
                 ano_inicio = hoje.year
-                mes_inicio = hoje.month - 3
+                mes_inicio = hoje.month - quantidade_meses
             
-            # Data de início (primeiro dia do mês de 3 meses atrás)
+            # Data de início (primeiro dia do mês de X meses atrás)
             data_inicio = datetime(ano_inicio, mes_inicio, 1)
             
             # Data fim (primeiro dia do mês atual)
             data_fim = datetime(hoje.year, hoje.month, 1)
             
-            query_3_meses = f"""
+            query_meses = f"""
             SELECT 
                 {coluna_nome_usuario} as nome_usuario,
                 {coluna_total} as total,
@@ -853,13 +895,13 @@ def pesquisar_custos_usuarios(pergunta):
             AND {coluna_mes_referencia} >= DATE '{data_inicio.strftime('%Y-%m-%d')}'
             AND {coluna_mes_referencia} < DATE '{data_fim.strftime('%Y-%m-%d')}'
             ORDER BY {coluna_total} DESC
-            LIMIT 3
+            LIMIT {quantidade_meses}
             """
             
-            resultado_3_meses = executar_query_direta(conn, query_3_meses)
-            if resultado_3_meses is not None and not resultado_3_meses.empty:
+            resultado_meses = executar_query_direta(conn, query_meses)
+            if resultado_meses is not None and not resultado_meses.empty:
                 usuarios_info = []
-                for _, row in resultado_3_meses.iterrows():
+                for _, row in resultado_meses.iterrows():
                     usuario = row['nome_usuario']
                     total = row['total']
                     mes_ref = row['mes_referencia']
@@ -895,11 +937,20 @@ def pesquisar_custos_usuarios(pergunta):
                     usuarios_info.append(f"{usuario} {total_formatado} no mês {mes_formatado}")
                 
                 if usuarios_info:
-                    return f"Nos últimos 3 meses os usuários que tiveram os maiores custos foram: {'; '.join(usuarios_info)}."
+                    if quantidade_meses == 1:
+                        return f"No último mês o usuário que teve o maior custo foi: {'; '.join(usuarios_info)}."
+                    else:
+                        return f"Nos últimos {quantidade_meses} meses os usuários que tiveram os maiores custos foram: {'; '.join(usuarios_info)}."
                 else:
-                    return f"Não foram encontrados dados de custos para o Cliente {nome_cliente_filtro} nos últimos 3 meses."
+                    if quantidade_meses == 1:
+                        return f"Não foram encontrados dados de custos para o Cliente {nome_cliente_filtro} no último mês."
+                    else:
+                        return f"Não foram encontrados dados de custos para o Cliente {nome_cliente_filtro} nos últimos {quantidade_meses} meses."
             else:
-                return f"Não foram encontrados dados de custos para o Cliente {nome_cliente_filtro} nos últimos 3 meses."
+                if quantidade_meses == 1:
+                    return f"Não foram encontrados dados de custos para o Cliente {nome_cliente_filtro} no último mês."
+                else:
+                    return f"Não foram encontrados dados de custos para o Cliente {nome_cliente_filtro} nos últimos {quantidade_meses} meses."
         
         # Se não conseguiu identificar o tipo de pergunta, retornar dados gerais
         query_geral = f"""
@@ -1343,28 +1394,34 @@ def pesquisar_linhas_ociosas(pergunta):
             else:
                 return f"O Cliente {nome_cliente_filtro} possuiu em {mes_nome} de {ano} 0 linhas ociosas."
         
-        elif 'último' in pergunta_lower and '3' in pergunta_lower and ('mês' in pergunta_lower or 'mes' in pergunta_lower):
-            # Pergunta 3: Últimos 3 meses - Query simplificada com range de datas
+        elif 'último' in pergunta_lower and ('mês' in pergunta_lower or 'mes' in pergunta_lower):
+            # Pergunta 3: Últimos X meses - Query simplificada com range de datas
+            quantidade_meses = extrair_quantidade_meses(pergunta)
+            
+            # Se não conseguiu extrair quantidade, usar 3 como padrão (compatibilidade)
+            if quantidade_meses is None:
+                quantidade_meses = 3
+            
             from datetime import datetime, timedelta
             hoje = datetime.now()
             
-            # Calcular data de início (3 meses atrás do mês atual)
-            if hoje.month <= 3:
-                # Se estamos nos primeiros 3 meses do ano, pegar do ano anterior
+            # Calcular data de início (X meses atrás do mês atual)
+            if hoje.month <= quantidade_meses:
+                # Se estamos nos primeiros X meses do ano, pegar do ano anterior
                 ano_inicio = hoje.year - 1
-                mes_inicio = hoje.month + 9  # 12 - 3 + hoje.month
+                mes_inicio = hoje.month + (12 - quantidade_meses)
             else:
                 ano_inicio = hoje.year
-                mes_inicio = hoje.month - 3
+                mes_inicio = hoje.month - quantidade_meses
             
-            # Data de início (primeiro dia do mês de 3 meses atrás)
+            # Data de início (primeiro dia do mês de X meses atrás)
             data_inicio = datetime(ano_inicio, mes_inicio, 1)
             
             # Data fim (primeiro dia do mês atual)
             data_fim = datetime(hoje.year, hoje.month, 1)
             
             # Query simplificada com range de datas
-            query_3_meses = f"""
+            query_meses = f"""
             SELECT COUNT(*) as total_ociosas
             FROM ia_linhas_ociosas
             WHERE {filtro_cliente}
@@ -1372,15 +1429,24 @@ def pesquisar_linhas_ociosas(pergunta):
             AND {coluna_mes_referencia} < DATE '{data_fim.strftime('%Y-%m-%d')}'
             """
             
-            resultado_3_meses = executar_query_direta(conn, query_3_meses)
-            if resultado_3_meses is not None and not resultado_3_meses.empty:
-                total_3_meses = resultado_3_meses.iloc[0]['total_ociosas'] or 0
-                resultados.append(f"\n--- LINHAS OCIOSAS ÚLTIMOS 3 MESES - CLIENTE {nome_cliente_filtro.upper()} ---")
-                resultados.append(f"Período: {data_inicio.strftime('%m/%Y')} a {(data_fim - timedelta(days=1)).strftime('%m/%Y')}")
-                resultados.append(f"TOTAL DOS 3 MESES: {formatar_inteiro_ptbr(total_3_meses)} linhas")
+            resultado_meses = executar_query_direta(conn, query_meses)
+            if resultado_meses is not None and not resultado_meses.empty:
+                total_meses = resultado_meses.iloc[0]['total_ociosas'] or 0
+                if quantidade_meses == 1:
+                    resultados.append(f"\n--- LINHAS OCIOSAS ÚLTIMO MÊS - CLIENTE {nome_cliente_filtro.upper()} ---")
+                    resultados.append(f"Período: {data_inicio.strftime('%m/%Y')}")
+                    resultados.append(f"TOTAL DO ÚLTIMO MÊS: {formatar_inteiro_ptbr(total_meses)} linhas")
+                else:
+                    resultados.append(f"\n--- LINHAS OCIOSAS ÚLTIMOS {quantidade_meses} MESES - CLIENTE {nome_cliente_filtro.upper()} ---")
+                    resultados.append(f"Período: {data_inicio.strftime('%m/%Y')} a {(data_fim - timedelta(days=1)).strftime('%m/%Y')}")
+                    resultados.append(f"TOTAL DOS {quantidade_meses} MESES: {formatar_inteiro_ptbr(total_meses)} linhas")
             else:
-                resultados.append(f"\n--- LINHAS OCIOSAS ÚLTIMOS 3 MESES - CLIENTE {nome_cliente_filtro.upper()} ---")
-                resultados.append(f"TOTAL DOS 3 MESES: 0 linhas")
+                if quantidade_meses == 1:
+                    resultados.append(f"\n--- LINHAS OCIOSAS ÚLTIMO MÊS - CLIENTE {nome_cliente_filtro.upper()} ---")
+                    resultados.append(f"TOTAL DO ÚLTIMO MÊS: 0 linhas")
+                else:
+                    resultados.append(f"\n--- LINHAS OCIOSAS ÚLTIMOS {quantidade_meses} MESES - CLIENTE {nome_cliente_filtro.upper()} ---")
+                    resultados.append(f"TOTAL DOS {quantidade_meses} MESES: 0 linhas")
         
         
         # Consulta de amostra para verificar estrutura
@@ -1433,14 +1499,28 @@ def pesquisar_linhas_ociosas(pergunta):
         else:
             return f"O Cliente {nome_cliente_filtro} possuiu em {mes_nome} de {ano} 0 linhas ociosas."
     
-    elif 'último' in pergunta_lower and '3' in pergunta_lower and 'mês' in pergunta_lower:
-        # Resposta para últimos 3 meses
-        if 'TOTAL DOS 3 MESES:' in resultado_final:
-            linha_total = [linha for linha in resultados if 'TOTAL DOS 3 MESES:' in linha][0]
-            total_3_meses = linha_total.split(': ')[1]
-            return f"O Cliente {nome_cliente_filtro} possuiu nos últimos 3 meses {total_3_meses}."
+    elif 'último' in pergunta_lower and ('mês' in pergunta_lower or 'mes' in pergunta_lower):
+        # Resposta para últimos X meses
+        quantidade_meses = extrair_quantidade_meses(pergunta)
+        
+        # Se não conseguiu extrair quantidade, usar 3 como padrão (compatibilidade)
+        if quantidade_meses is None:
+            quantidade_meses = 3
+        
+        if quantidade_meses == 1:
+            if 'TOTAL DO ÚLTIMO MÊS:' in resultado_final:
+                linha_total = [linha for linha in resultados if 'TOTAL DO ÚLTIMO MÊS:' in linha][0]
+                total_mes = linha_total.split(': ')[1]
+                return f"O Cliente {nome_cliente_filtro} possuiu no último mês {total_mes}."
+            else:
+                return f"O Cliente {nome_cliente_filtro} possuiu no último mês 0 linhas ociosas."
         else:
-            return f"O Cliente {nome_cliente_filtro} possuiu nos últimos 3 meses 0 linhas ociosas."
+            if f'TOTAL DOS {quantidade_meses} MESES:' in resultado_final:
+                linha_total = [linha for linha in resultados if f'TOTAL DOS {quantidade_meses} MESES:' in linha][0]
+                total_meses = linha_total.split(': ')[1]
+                return f"O Cliente {nome_cliente_filtro} possuiu nos últimos {quantidade_meses} meses {total_meses}."
+            else:
+                return f"O Cliente {nome_cliente_filtro} possuiu nos últimos {quantidade_meses} meses 0 linhas ociosas."
     
     elif 'operadora' in pergunta_lower and ('atualmente' in pergunta_lower or 'atual' in pergunta_lower):
         # Resposta para por operadora
@@ -1911,7 +1991,9 @@ while True:
     dados_banco = pesquisar_no_banco(pergunta)
     
     # Verificar se é uma resposta de custos por usuários (já formatada)
-    if (dados_banco.startswith("O Usuário") or dados_banco.startswith("Nos últimos 3 meses") or 
+    if (dados_banco.startswith("O Usuário") or 
+        dados_banco.startswith("Nos últimos") or 
+        dados_banco.startswith("No último mês") or
         dados_banco.startswith("Não foram encontrados dados de custos") or 
         dados_banco.startswith("--- INFORMAÇÕES EXTRAÍDAS DA PERGUNTA ---")):
         print("LeIA: ", end="")

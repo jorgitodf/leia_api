@@ -108,7 +108,7 @@ O sistema trabalha com as seguintes tabelas:
 ### Custos por Usuários
 - "Qual usuário do Cliente Safra possui o maior custo no mês atual?"
 - "Qual usuário do Cliente Sonda teve o maior custo no mês de Agosto/2025?"
-- "Quais são os usuários do Cliente Verzani que tiveram os maiores custos nos últimos 3 meses?"
+- "Quais são os usuários do Cliente Verzani que tiveram os maiores custos nos últimos 6 meses?"
 
 ### Linhas
 - "Quantas linhas ativas possui o Cliente Safra no mês atual?"

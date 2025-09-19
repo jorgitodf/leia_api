@@ -257,7 +257,9 @@ def processar_pergunta(pergunta):
         dados_banco = pesquisar_no_banco(pergunta)
     
     # Verificar se é uma resposta de custos por usuários (já formatada)
-    if (dados_banco.startswith("O Usuário") or dados_banco.startswith("Nos últimos 3 meses") or 
+    if (dados_banco.startswith("O Usuário") or 
+        dados_banco.startswith("Nos últimos") or 
+        dados_banco.startswith("No último mês") or
         dados_banco.startswith("Não foram encontrados dados de custos") or 
         dados_banco.startswith("--- INFORMAÇÕES EXTRAÍDAS DA PERGUNTA ---")):
         return dados_banco
