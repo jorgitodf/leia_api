@@ -1,6 +1,7 @@
 import os, sys
 import streamlit as st
 import time
+import json
 from datetime import datetime
 
 # Silenciar logs do gRPC/ALTS via env e ocultar stderr apenas durante import Google
@@ -121,7 +122,8 @@ DB_CONFIG = {
     'port': os.getenv('DB_PORT', '5441'),
     'database': os.getenv('DB_NAME', 'LeIA'),
     'user': os.getenv('DB_USER', 'postgres'),
-    'password': os.getenv('DB_PASSWORD', 'postgres')
+    'password': os.getenv('DB_PASSWORD', 'postgres'),
+    'sslmode': os.getenv('DB_SSLMODE', 'require')
 }
 
 # Importar todas as funções do main.py
@@ -132,7 +134,7 @@ from main import (
     formatar_inteiro_ptbr, construir_filtro_mes, detectar_tabela_e_campos,
     pesquisar_linhas, pesquisar_custos_usuarios, pesquisar_linhas_ociosas,
     pesquisar_termos_linhas, pesquisar_no_banco, _cosine_similarity, construir_rag_prompt,
-    preparar_llm_e_embeddings, responder_com_rag
+    preparar_llm_e_embeddings, responder_com_rag, processar_pergunta_json
 )
 
 # Configuração da página Streamlit
@@ -230,6 +232,8 @@ if 'embeddings' not in st.session_state:
     st.session_state.embeddings = None
 if 'modo_sem_llm' not in st.session_state:
     st.session_state.modo_sem_llm = False
+if 'modo_json' not in st.session_state:
+    st.session_state.modo_json = False
 
 def inicializar_llm():
     """Inicializa o LLM e embeddings se ainda não foram inicializados"""
@@ -305,6 +309,23 @@ def processar_pergunta(pergunta):
                 st.error(f"Erro ao gerar resposta: {e}")
                 return f"Dados do banco (sem processamento IA):\n\n{dados_banco}"
 
+def processar_pergunta_json_streamlit(entrada_json):
+    """Processa pergunta em formato JSON e retorna resposta JSON"""
+    try:
+        # Processar pergunta usando a função do main.py
+        resposta_json = processar_pergunta_json(entrada_json, st.session_state.llm, st.session_state.embeddings)
+        return resposta_json
+    except Exception as e:
+        import json
+        erro_json = {
+            "sucesso": False,
+            "pergunta": "N/A",
+            "resposta": f"Erro ao processar pergunta JSON: {str(e)}",
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "versao": "1.0"
+        }
+        return json.dumps(erro_json, ensure_ascii=False, indent=2)
+
 def main():
     # Cabeçalho principal
     st.markdown("""
@@ -348,6 +369,14 @@ def main():
                 st.info("LLM e RAG funcionando normalmente.")
         else:
             st.info("🔄 Inicializando sistema...")
+        
+        # Toggle para modo JSON
+        st.header("📋 Modo de Entrada")
+        modo_json = st.checkbox("🔧 Modo JSON", value=st.session_state.modo_json, help="Ativar para entrada e saída em formato JSON")
+        st.session_state.modo_json = modo_json
+        
+        if modo_json:
+            st.info("📝 Modo JSON ativado. Use o formato JSON para perguntas.")
         
         # Botão para limpar histórico
         if st.button("🗑️ Limpar Histórico"):
@@ -413,32 +442,88 @@ def main():
     # Container para input de pergunta
     st.markdown('<div class="chat-input-container">', unsafe_allow_html=True)
     
-    # Input para nova pergunta com placeholder mais descritivo
-    prompt = st.chat_input(
-        "💬 Digite sua pergunta aqui... (ex: Qual o fornecedor com maior custo em janeiro de 2024?)",
-        key="chat_input"
-    )
+    if st.session_state.modo_json:
+        # Modo JSON
+        st.markdown("### 📝 Entrada JSON")
+        st.markdown("Digite sua pergunta no formato JSON:")
+        
+        # Exemplo de JSON
+        exemplo_json = {
+            "pergunta": "Qual o fornecedor com maior custo em janeiro de 2024?"
+        }
+        
+        st.code(json.dumps(exemplo_json, ensure_ascii=False, indent=2), language="json")
+        
+        # Text area para entrada JSON
+        entrada_json = st.text_area(
+            "JSON de entrada:",
+            value=json.dumps(exemplo_json, ensure_ascii=False, indent=2),
+            height=100,
+            key="json_input"
+        )
+        
+        # Botão para processar JSON
+        if st.button("🚀 Processar JSON", key="process_json"):
+            if entrada_json.strip():
+                try:
+                    # Validar JSON
+                    json.loads(entrada_json)
+                    
+                    # Adicionar mensagem do usuário
+                    st.session_state.messages.append({"role": "user", "content": f"JSON: {entrada_json}"})
+                    
+                    # Exibir mensagem do usuário
+                    with st.chat_message("user"):
+                        st.json(json.loads(entrada_json))
+                    
+                    # Processar pergunta JSON e gerar resposta
+                    with st.chat_message("assistant"):
+                        with st.spinner("🔍 Processando pergunta JSON..."):
+                            resposta_json = processar_pergunta_json_streamlit(entrada_json)
+                        
+                        # Exibir resposta JSON
+                        st.json(json.loads(resposta_json))
+                    
+                    # Adicionar resposta ao histórico
+                    st.session_state.messages.append({"role": "assistant", "content": f"JSON Response: {resposta_json}"})
+                    
+                    # Limpar o input após enviar
+                    st.rerun()
+                    
+                except json.JSONDecodeError as e:
+                    st.error(f"❌ JSON inválido: {str(e)}")
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar: {str(e)}")
+            else:
+                st.warning("⚠️ Por favor, digite um JSON válido.")
+    else:
+        # Modo normal (texto)
+        # Input para nova pergunta com placeholder mais descritivo
+        prompt = st.chat_input(
+            "💬 Digite sua pergunta aqui... (ex: Qual o fornecedor com maior custo em janeiro de 2024?)",
+            key="chat_input"
+        )
+        
+        if prompt:
+            # Adicionar mensagem do usuário
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            
+            # Exibir mensagem do usuário
+            with st.chat_message("user"):
+                st.markdown(prompt)
+            
+            # Processar pergunta e gerar resposta
+            with st.chat_message("assistant"):
+                resposta = processar_pergunta(prompt)
+                st.markdown(resposta)
+            
+            # Adicionar resposta ao histórico
+            st.session_state.messages.append({"role": "assistant", "content": resposta})
+            
+            # Limpar o input após enviar
+            st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    if prompt:
-        # Adicionar mensagem do usuário
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        # Exibir mensagem do usuário
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        
-        # Processar pergunta e gerar resposta
-        with st.chat_message("assistant"):
-            resposta = processar_pergunta(prompt)
-            st.markdown(resposta)
-        
-        # Adicionar resposta ao histórico
-        st.session_state.messages.append({"role": "assistant", "content": resposta})
-        
-        # Limpar o input após enviar
-        st.rerun()
     
     # Rodapé
     st.markdown("---")

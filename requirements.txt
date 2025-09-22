@@ -22,6 +22,11 @@ regex>=2023.0.0
 # Web Interface
 streamlit>=1.28.0
 
+# API REST
+flask>=2.3.0
+flask-cors>=4.0.0
+requests>=2.31.0
+
 # Optional: Para desenvolvimento e debugging
 # pytest>=7.0.0
 # black>=23.0.0

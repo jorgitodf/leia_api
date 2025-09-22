@@ -1,4 +1,5 @@
 import os, sys
+import json
 # Silenciar logs do gRPC/ALTS via env e ocultar stderr apenas durante import Google
 os.environ.setdefault("GRPC_VERBOSITY", "ERROR")
 os.environ.setdefault("GLOG_minloglevel", "3")
@@ -118,7 +119,8 @@ DB_CONFIG = {
     'port': os.getenv('DB_PORT', '5441'),
     'database': os.getenv('DB_NAME', 'LeIA'),
     'user': os.getenv('DB_USER', 'postgres'),
-    'password': os.getenv('DB_PASSWORD', 'postgres')
+    'password': os.getenv('DB_PASSWORD', 'postgres'),
+    'sslmode': os.getenv('DB_SSLMODE', 'require')
 }
 
 def conectar_postgres():
@@ -129,6 +131,115 @@ def conectar_postgres():
     except Exception as e:
         print(f"Erro ao conectar com o PostgreSQL: {e}")
         return None
+
+def processar_entrada_json(entrada_json):
+    """Processa entrada JSON e extrai a pergunta"""
+    try:
+        if isinstance(entrada_json, str):
+            dados = json.loads(entrada_json)
+        else:
+            dados = entrada_json
+        
+        # Extrair pergunta do JSON
+        pergunta = dados.get('pergunta', dados.get('question', dados.get('query', '')))
+        
+        if not pergunta:
+            return None, {"erro": "Campo 'pergunta' não encontrado no JSON"}
+        
+        return pergunta, None
+    
+    except json.JSONDecodeError as e:
+        return None, {"erro": f"JSON inválido: {str(e)}"}
+    except Exception as e:
+        return None, {"erro": f"Erro ao processar entrada: {str(e)}"}
+
+def formatar_resposta_json(resposta_texto, pergunta, sucesso=True, dados_extras=None):
+    """Formata resposta em JSON"""
+    try:
+        resposta_json = {
+            "sucesso": sucesso,
+            "pergunta": pergunta,
+            "resposta": resposta_texto,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "versao": "1.0"
+        }
+        
+        if dados_extras:
+            resposta_json["dados_extras"] = dados_extras
+        
+        return json.dumps(resposta_json, ensure_ascii=False, indent=2)
+    
+    except Exception as e:
+        erro_json = {
+            "sucesso": False,
+            "pergunta": pergunta if pergunta else "N/A",
+            "resposta": f"Erro ao formatar resposta JSON: {str(e)}",
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "versao": "1.0"
+        }
+        return json.dumps(erro_json, ensure_ascii=False, indent=2)
+
+def processar_pergunta_json(entrada_json, llm=None, embeddings=None):
+    """Processa pergunta em formato JSON e retorna resposta em JSON"""
+    try:
+        # Processar entrada JSON
+        pergunta, erro = processar_entrada_json(entrada_json)
+        if erro:
+            return formatar_resposta_json("", "", False, erro)
+        
+        if not pergunta.strip():
+            return formatar_resposta_json("Por favor, digite uma pergunta válida.", pergunta, False)
+        
+        # Pesquisar no banco de dados
+        dados_banco = pesquisar_no_banco(pergunta)
+        
+        # Verificar se é uma resposta já formatada (custos por usuários, linhas ociosas, termos)
+        if (dados_banco.startswith("O Usuário") or 
+            dados_banco.startswith("Nos últimos") or 
+            dados_banco.startswith("No último mês") or
+            dados_banco.startswith("Não foram encontrados dados de custos") or 
+            dados_banco.startswith("--- INFORMAÇÕES EXTRAÍDAS DA PERGUNTA ---")):
+            return formatar_resposta_json(dados_banco, pergunta, True)
+        
+        # Verificar se é uma resposta de linhas ociosas (já formatada)
+        elif (dados_banco.startswith("O Cliente") and 
+            ("linhas ociosas" in dados_banco or "linha ociosa" in dados_banco or 
+             "possui atualmente" in dados_banco or "possuiu em" in dados_banco or 
+             "possuiu nos últimos" in dados_banco)):
+            return formatar_resposta_json(dados_banco, pergunta, True)
+        
+        # Verificar se é uma resposta sobre termos de linhas (já formatada)
+        elif (dados_banco.startswith("O Cliente") and 
+            ("linhas sem termos" in dados_banco or "linha sem termo" in dados_banco or 
+             "são do tipo" in dados_banco or "estão Ativas são do tipo" in dados_banco)):
+            return formatar_resposta_json(dados_banco, pergunta, True)
+        
+        # Verificar se é uma resposta de linhas normais (deve passar pelo RAG)
+        elif ("--- LINHAS POR FORNECEDOR" in dados_banco or 
+              "--- TOTAL POR FORNECEDOR" in dados_banco or
+              "--- DADOS BRUTOS" in dados_banco or
+              "--- DEBUG:" in dados_banco):
+            # Passar pelo RAG para formatar a resposta
+            if llm and embeddings:
+                try:
+                    resposta = responder_com_rag(pergunta, dados_banco, llm, embeddings, top_k=6)
+                    return formatar_resposta_json(resposta, pergunta, True)
+                except Exception as e:
+                    return formatar_resposta_json(f"Dados do banco (sem processamento IA):\n\n{dados_banco}", pergunta, True, {"erro_ia": str(e)})
+            else:
+                return formatar_resposta_json(f"Dados do banco de dados:\n\n{dados_banco}", pergunta, True)
+        else:
+            if llm and embeddings:
+                try:
+                    resposta = responder_com_rag(pergunta, dados_banco, llm, embeddings, top_k=6)
+                    return formatar_resposta_json(resposta, pergunta, True)
+                except Exception as e:
+                    return formatar_resposta_json(f"Dados do banco (sem processamento IA):\n\n{dados_banco}", pergunta, True, {"erro_ia": str(e)})
+            else:
+                return formatar_resposta_json(f"Dados do banco de dados:\n\n{dados_banco}", pergunta, True)
+    
+    except Exception as e:
+        return formatar_resposta_json(f"Erro interno: {str(e)}", pergunta if 'pergunta' in locals() else "", False)
 
 def extrair_palavras_chave(pergunta):
     """Extrai palavras-chave relevantes da pergunta"""
@@ -1591,9 +1702,13 @@ def pesquisar_no_banco(pergunta):
         if termo in pergunta_lower:
             return pesquisar_linhas_ociosas(pergunta)
     
+    # Verificar se a pergunta é sobre custos (prioridade sobre linhas)
+    termos_custos = ['custo', 'maior custo', 'fornecedor.*custo', 'custo.*fornecedor']
+    if any(termo in pergunta_lower for termo in termos_custos):
+        # Não redirecionar, usar a lógica de custos abaixo
+        pass
     # Verificar se a pergunta é sobre linhas normais
-    termos_linhas = ['linha', 'licenca', 'status', 'ativa', 'bloqueada', 'cancelada', 'total_linhas', 'fornecedor']
-    if any(termo in pergunta_lower for termo in termos_linhas):
+    elif any(termo in pergunta_lower for termo in ['linha', 'licenca', 'status', 'ativa', 'bloqueada', 'cancelada', 'total_linhas']):
         return pesquisar_linhas(pergunta)
     
     # Se não for sobre linhas, usa a versão original para custos
@@ -1665,7 +1780,7 @@ def pesquisar_no_banco(pergunta):
                     coluna_cliente = coluna
                 elif 'fornecedor' in coluna_lower:
                     coluna_fornecedor = coluna
-                elif 'custo' in coluna_lower or 'valor' in coluna_lower or 'total' in coluna_lower or tipo in ['numeric', 'decimal', 'money', 'double precision']:
+                elif coluna_lower == 'total' or 'custo' in coluna_lower or 'valor' in coluna_lower or tipo in ['numeric', 'decimal', 'money', 'double precision']:
                     coluna_custo = coluna
                 elif 'mes' in coluna_lower or 'referencia' in coluna_lower or 'data' in coluna_lower or tipo in ['date', 'timestamp', 'varchar', 'text']:
                     coluna_mes_referencia = coluna
@@ -1716,7 +1831,11 @@ def pesquisar_no_banco(pergunta):
                 resultado_mes_exato = executar_query_direta(conn, query_mes_exato)
                 if resultado_mes_exato is not None and not resultado_mes_exato.empty:
                     resultados.append(f"\n--- DADOS EXATOS PARA {mes_nome} {ano} - CLIENTE {nome_cliente_filtro.upper()} ---")
-                    resultados.append(resultado_mes_exato.to_string(index=False))
+                    # Formatar valores monetários
+                    df_formatado = resultado_mes_exato.copy()
+                    if coluna_custo in df_formatado.columns:
+                        df_formatado[coluna_custo] = df_formatado[coluna_custo].apply(formatar_moeda)
+                    resultados.append(df_formatado.to_string(index=False))
                 else:
                     resultados.append(f"\n--- NENHUM DADO ENCONTRADO PARA {mes_nome} {ano} - CLIENTE {nome_cliente_filtro.upper()} ---")
             
@@ -1735,7 +1854,7 @@ def pesquisar_no_banco(pergunta):
                     resultados.append(f"\n--- VERIFICAÇÃO: DADOS DE {mes_nome} {ano} EXISTEM PARA {nome_cliente_filtro.upper()} ---")
                     resultados.append(resultado_verificar.to_string(index=False))
             
-            # CONSULTA 3: Fornecedor com maior custo no mês/ano solicitado (DYNAMIC - SOMA por fornecedor)
+            # CONSULTA 3: Fornecedor com maior custo no mês/ano solicitado (MAIOR VALOR INDIVIDUAL)
             if mes_numero and ano and coluna_mes_referencia and coluna_cliente and coluna_fornecedor and coluna_custo:
                 filtro_mes = construir_filtro_mes(coluna_mes_referencia, None, ano, mes_numero)
                 
@@ -1744,13 +1863,10 @@ def pesquisar_no_banco(pergunta):
                     {coluna_cliente} as cliente,
                     {coluna_fornecedor} as fornecedor,
                     {coluna_mes_referencia} as mes_referencia,
-                    SUM({coluna_custo}) as custo_total"""
-                
-                campos_group_by = f"{coluna_cliente}, {coluna_fornecedor}, {coluna_mes_referencia}"
+                    {coluna_custo} as custo_total"""
                 
                 if coluna_tipo_contrato:
                     campos_select_maior += f",\n                    {coluna_tipo_contrato} as tipo_contrato"
-                    campos_group_by += f", {coluna_tipo_contrato}"
                 
                 query_maior_custo_mes = f"""
                 SELECT 
@@ -1758,15 +1874,18 @@ def pesquisar_no_banco(pergunta):
                 FROM ia_custo_fornecedor 
                 WHERE {filtro_cliente}
                 {filtro_mes}
-                GROUP BY {campos_group_by}
-                ORDER BY custo_total DESC
+                ORDER BY {coluna_custo} DESC
                 LIMIT 1
                 """
                 
                 resultado_maior_custo = executar_query_direta(conn, query_maior_custo_mes)
                 if resultado_maior_custo is not None and not resultado_maior_custo.empty:
                     resultados.append(f"\n--- FORNECEDOR COM MAIOR CUSTO EM {mes_nome} {ano} - CLIENTE {nome_cliente_filtro.upper()} ---")
-                    resultados.append(resultado_maior_custo.to_string(index=False))
+                    # Formatar o resultado com moeda brasileira
+                    df_formatado = resultado_maior_custo.copy()
+                    if 'custo_total' in df_formatado.columns:
+                        df_formatado['custo_total'] = df_formatado['custo_total'].apply(formatar_moeda)
+                    resultados.append(df_formatado.to_string(index=False))
             
             # CONSULTA 4: Todos os dados do mês/ano solicitado para análise (DYNAMIC)
             if mes_numero and ano and coluna_cliente and coluna_mes_referencia:
@@ -1783,7 +1902,11 @@ def pesquisar_no_banco(pergunta):
                 resultado_todos_mes = executar_query_direta(conn, query_todos_mes)
                 if resultado_todos_mes is not None and not resultado_todos_mes.empty:
                     resultados.append(f"\n--- TODOS OS DADOS DE {mes_nome} {ano} - CLIENTE {nome_cliente_filtro.upper()} ---")
-                    resultados.append(resultado_todos_mes.to_string(index=False))
+                    # Formatar valores monetários
+                    df_formatado = resultado_todos_mes.copy()
+                    if coluna_custo in df_formatado.columns:
+                        df_formatado[coluna_custo] = df_formatado[coluna_custo].apply(formatar_moeda)
+                    resultados.append(df_formatado.to_string(index=False))
             
             # CONSULTA 5: Datas disponíveis para referência
             if coluna_mes_referencia:
@@ -1828,7 +1951,11 @@ def pesquisar_no_banco(pergunta):
                 resultado_total = executar_query_direta(conn, query_total_geral)
                 if resultado_total is not None and not resultado_total.empty:
                     resultados.append(f"\n--- CUSTO TOTAL POR FORNECEDOR - CLIENTE {nome_cliente_filtro.upper()} ---")
-                    resultados.append(resultado_total.to_string(index=False))
+                    # Formatar valores monetários
+                    df_formatado = resultado_total.copy()
+                    if 'custo_total' in df_formatado.columns:
+                        df_formatado['custo_total'] = df_formatado['custo_total'].apply(formatar_moeda)
+                    resultados.append(df_formatado.to_string(index=False))
             
             # CONSULTA 7: Lista de clientes disponíveis
             if coluna_cliente:
