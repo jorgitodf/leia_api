@@ -11,7 +11,12 @@ A API agora carrega corretamente as configurações do arquivo `.env` e não ten
 - ✅ Configurações do banco carregadas do arquivo `.env`
 - ✅ Verificação das configurações na inicialização
 
-### **2. Novo Endpoint de Configuração**
+### **2. Configurações Independentes da API**
+- ✅ API define suas próprias configurações (`API_DB_CONFIG`)
+- ✅ Não depende das configurações do `main.py`
+- ✅ Funções de pesquisa usam conexão própria da API
+
+### **3. Novo Endpoint de Configuração**
 - ✅ `GET /config` - Verifica configurações do banco
 - ✅ Mostra host, porta, database, usuário (senha oculta)
 
@@ -51,6 +56,21 @@ python teste_configuracao_banco.py
 ```
 ✅ Conexão com o banco de dados bem-sucedida!
 🎉 CONFIGURAÇÃO OK!
+```
+
+### **2.1. Testar Configurações da API**
+
+Após iniciar a API, teste se está usando as configurações corretas:
+
+```bash
+python teste_configuracao_api.py
+```
+
+**Resultado esperado:**
+```
+✅ API está usando configurações corretas (não localhost)
+✅ Conexão com o banco funcionando!
+🎉 TESTE CONCLUÍDO COM SUCESSO!
 ```
 
 ### **3. Iniciar a API**
