@@ -1,0 +1,1 @@
+web: gunicorn api_json_final:app --bind 0.0.0.0:$PORT
