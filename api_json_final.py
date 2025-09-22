@@ -17,11 +17,11 @@ load_dotenv()
 
 # Configurações do banco de dados da API (sobrescreve as do main.py)
 API_DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'localhost'),
-    'port': os.getenv('DB_PORT', '5441'),
-    'database': os.getenv('DB_NAME', 'LeIA'),
-    'user': os.getenv('DB_USER', 'postgres'),
-    'password': os.getenv('DB_PASSWORD', 'postgres'),
+    'host': os.getenv('DB_HOST', 'aws-1-us-east-2.pooler.supabase.com'),
+    'port': os.getenv('DB_PORT', '6543'),
+    'database': os.getenv('DB_NAME', 'postgres'),
+    'user': os.getenv('DB_USER', 'postgres.pfznodcjdxcuwmpcmupg'),
+    'password': os.getenv('DB_PASSWORD', '!LeIA@2025'),
     'sslmode': os.getenv('DB_SSLMODE', 'require')
 }
 
