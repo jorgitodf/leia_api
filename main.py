@@ -2093,61 +2093,82 @@ def responder_com_rag(pergunta, dados_textuais, llm, embeddings, top_k=6):
     except Exception:
         return formatar_valores_monetarios_no_texto(str(resposta))
 
-print("Olá, sou a sua assistente virtual LeIA, como posso te ajudar hoje?")
-print("Digite 'sair' quando quiser encerrar a minha assistência!")
+# Loop principal só executa se o arquivo for executado diretamente
+if __name__ == "__main__":
+    print("Olá, sou a sua assistente virtual LeIA, como posso te ajudar hoje?")
+    print("Digite 'sair' quando quiser encerrar a minha assistência!")
 
-# Inicializa LLM e Embeddings uma única vez
-try:
-    llm, embeddings = preparar_llm_e_embeddings()
-    modo_sem_llm = False
-except Exception as e:
-    print(f"Aviso: {e}")
-    print("Operando sem LLM. Somente exibindo os resultados da base.")
-    llm, embeddings = None, None
-    modo_sem_llm = True
+    # Inicializa LLM e Embeddings uma única vez
+    try:
+        llm, embeddings = preparar_llm_e_embeddings()
+        modo_sem_llm = False
+    except Exception as e:
+        print(f"Aviso: {e}")
+        print("Operando sem LLM. Somente exibindo os resultados da base.")
+        llm, embeddings = None, None
+        modo_sem_llm = True
 
-while True:
-    pergunta = input("Você: ")
-    
-    if pergunta.lower() in ['sair', 'exit', 'quit']:
-        print("LeIA: Até Logo!")
-        break 
+    while True:
+        pergunta = input("Você: ")
+        
+        if pergunta.lower() in ['sair', 'exit', 'quit']:
+            print("LeIA: Até Logo!")
+            break 
 
-    # Pesquisar no banco de dados
-    print("LeIA: Aguarde um momento, por gentileza...")
-    dados_banco = pesquisar_no_banco(pergunta)
-    
-    # Verificar se é uma resposta de custos por usuários (já formatada)
-    if (dados_banco.startswith("O Usuário") or 
-        dados_banco.startswith("Nos últimos") or 
-        dados_banco.startswith("No último mês") or
-        dados_banco.startswith("Não foram encontrados dados de custos") or 
-        dados_banco.startswith("--- INFORMAÇÕES EXTRAÍDAS DA PERGUNTA ---")):
-        print("LeIA: ", end="")
-        imprimir_digitando(dados_banco)
-        print("")
-    # Verificar se é uma resposta de linhas ociosas (já formatada)
-    elif (dados_banco.startswith("O Cliente") and 
-        ("linhas ociosas" in dados_banco or "linha ociosa" in dados_banco or 
-         "possui atualmente" in dados_banco or "possuiu em" in dados_banco or 
-         "possuiu nos últimos" in dados_banco)):
-        print("LeIA: ", end="")
-        imprimir_digitando(dados_banco)
-        print("")
-    # Verificar se é uma resposta sobre termos de linhas (já formatada)
-    elif (dados_banco.startswith("O Cliente") and 
-        ("linhas sem termos" in dados_banco or "linha sem termo" in dados_banco or 
-         "são do tipo" in dados_banco or "estão Ativas são do tipo" in dados_banco)):
-        print("LeIA: ", end="")
-        imprimir_digitando(dados_banco)
-        print("")
-    # Verificar se é uma resposta de linhas normais (deve passar pelo RAG)
-    elif ("--- LINHAS POR FORNECEDOR" in dados_banco or 
-          "--- TOTAL POR FORNECEDOR" in dados_banco or
-          "--- DADOS BRUTOS" in dados_banco or
-          "--- DEBUG:" in dados_banco):
-        # Passar pelo RAG para formatar a resposta
-        if not modo_sem_llm:
+        # Pesquisar no banco de dados
+        print("LeIA: Aguarde um momento, por gentileza...")
+        dados_banco = pesquisar_no_banco(pergunta)
+        
+        # Verificar se é uma resposta de custos por usuários (já formatada)
+        if (dados_banco.startswith("O Usuário") or 
+            dados_banco.startswith("Nos últimos") or 
+            dados_banco.startswith("No último mês") or
+            dados_banco.startswith("Não foram encontrados dados de custos") or 
+            dados_banco.startswith("--- INFORMAÇÕES EXTRAÍDAS DA PERGUNTA ---")):
+            print("LeIA: ", end="")
+            imprimir_digitando(dados_banco)
+            print("")
+        # Verificar se é uma resposta de linhas ociosas (já formatada)
+        elif (dados_banco.startswith("O Cliente") and 
+            ("linhas ociosas" in dados_banco or "linha ociosa" in dados_banco or 
+             "possui atualmente" in dados_banco or "possuiu em" in dados_banco or 
+             "possuiu nos últimos" in dados_banco)):
+            print("LeIA: ", end="")
+            imprimir_digitando(dados_banco)
+            print("")
+        # Verificar se é uma resposta sobre termos de linhas (já formatada)
+        elif (dados_banco.startswith("O Cliente") and 
+            ("linhas sem termos" in dados_banco or "linha sem termo" in dados_banco or 
+             "são do tipo" in dados_banco or "estão Ativas são do tipo" in dados_banco)):
+            print("LeIA: ", end="")
+            imprimir_digitando(dados_banco)
+            print("")
+        # Verificar se é uma resposta de linhas normais (deve passar pelo RAG)
+        elif ("--- LINHAS POR FORNECEDOR" in dados_banco or 
+              "--- TOTAL POR FORNECEDOR" in dados_banco or
+              "--- DADOS BRUTOS" in dados_banco or
+              "--- DEBUG:" in dados_banco):
+            # Passar pelo RAG para formatar a resposta
+            if not modo_sem_llm:
+                try:
+                    resposta = responder_com_rag(pergunta, dados_banco, llm, embeddings, top_k=6)
+                    print("LeIA: ", end="")
+                    imprimir_digitando(resposta)
+                    print("")
+                except Exception as e:
+                    print(f"Erro ao gerar resposta: {e}")
+                    print("Mostrando apenas resultados do banco:")
+                    imprimir_digitando(dados_banco)
+                    print("")
+            else:
+                print(f"\nResultados do banco de dados:")
+                print(dados_banco)
+                print("\n")
+        elif modo_sem_llm:
+            print(f"\nResultados do banco de dados:")
+            print(dados_banco)
+            print("\n")
+        else:
             try:
                 resposta = responder_com_rag(pergunta, dados_banco, llm, embeddings, top_k=6)
                 print("LeIA: ", end="")
@@ -2158,22 +2179,3 @@ while True:
                 print("Mostrando apenas resultados do banco:")
                 imprimir_digitando(dados_banco)
                 print("")
-        else:
-            print(f"\nResultados do banco de dados:")
-            print(dados_banco)
-            print("\n")
-    elif modo_sem_llm:
-        print(f"\nResultados do banco de dados:")
-        print(dados_banco)
-        print("\n")
-    else:
-        try:
-            resposta = responder_com_rag(pergunta, dados_banco, llm, embeddings, top_k=6)
-            print("LeIA: ", end="")
-            imprimir_digitando(resposta)
-            print("")
-        except Exception as e:
-            print(f"Erro ao gerar resposta: {e}")
-            print("Mostrando apenas resultados do banco:")
-            imprimir_digitando(dados_banco)
-            print("")
