@@ -10,6 +10,34 @@ import json
 import time
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+# Carregar variáveis de ambiente do arquivo .env
+load_dotenv()
+
+# Verificar configurações do banco de dados
+def verificar_configuracao_banco():
+    """Verifica se as configurações do banco estão corretas"""
+    db_host = os.getenv('DB_HOST', 'localhost')
+    db_port = os.getenv('DB_PORT', '5441')
+    db_name = os.getenv('DB_NAME', 'LeIA')
+    db_user = os.getenv('DB_USER', 'postgres')
+    
+    print(f"🔧 Configurações do Banco de Dados:")
+    print(f"   Host: {db_host}")
+    print(f"   Port: {db_port}")
+    print(f"   Database: {db_name}")
+    print(f"   User: {db_user}")
+    print(f"   Password: {'***' if os.getenv('DB_PASSWORD') else 'NÃO DEFINIDA'}")
+    
+    return {
+        'host': db_host,
+        'port': db_port,
+        'database': db_name,
+        'user': db_user,
+        'password': os.getenv('DB_PASSWORD', 'postgres'),
+        'sslmode': os.getenv('DB_SSLMODE', 'require')
+    }
 
 # Configurar Flask
 app = Flask(__name__)
@@ -159,6 +187,22 @@ def health_check():
         "llm_disponivel": llm_global is not None
     })
 
+@app.route('/config', methods=['GET'])
+def verificar_config():
+    """Endpoint para verificar configurações do banco de dados"""
+    config = verificar_configuracao_banco()
+    return jsonify({
+        "configuracao_banco": {
+            "host": config['host'],
+            "port": config['port'],
+            "database": config['database'],
+            "user": config['user'],
+            "password": "***" if config['password'] else "NÃO DEFINIDA",
+            "sslmode": config['sslmode']
+        },
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    })
+
 @app.route('/pergunta', methods=['POST'])
 def processar_pergunta():
     """Endpoint principal para processar perguntas em JSON"""
@@ -265,6 +309,7 @@ def home():
             "POST /pergunta": "Processar pergunta em JSON",
             "GET /exemplos": "Obter exemplos de perguntas",
             "GET /health": "Verificar status da API",
+            "GET /config": "Verificar configurações do banco de dados",
             "GET /": "Esta página"
         },
         "exemplo_uso": {
@@ -282,6 +327,9 @@ def home():
 if __name__ == '__main__':
     print("🚀 Inicializando LeIA API (Versão Final)...")
     
+    # Verificar configurações do banco de dados
+    verificar_configuracao_banco()
+    
     # Inicializar LLM
     inicializar_llm()
     
@@ -294,6 +342,7 @@ if __name__ == '__main__':
     print(f"📚 Documentação disponível em http://{host}:{port}/")
     print(f"🔍 Exemplos disponíveis em http://{host}:{port}/exemplos")
     print(f"❤️ Health check em http://{host}:{port}/health")
+    print(f"🔧 Configurações do banco em http://{host}:{port}/config")
     
     # Iniciar servidor
     app.run(host=host, port=port, debug=debug)
